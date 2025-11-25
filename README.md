@@ -1,4 +1,4 @@
-**Chat Application**
+# Chat Application
 - A chat application that uses Kafka as a message bus to exchange messages between the users. 
 - A Web socket connection is established for each user that sends the message to the Kafka, which is then consumed by Kafka and forwarded to the respective recipient. 
 
