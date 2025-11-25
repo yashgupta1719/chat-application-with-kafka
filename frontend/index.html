@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat App UI (STOMP WebSocket)</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; }
+        #chat-box { width: 400px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+        #messages { height: 250px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; background: #fafafa; }
+        .msg { padding: 5px 8px; margin: 5px 0; border-radius: 6px; }
+        .self { background: #d1ffd1; text-align: right; }
+        .other { background: #dbeaff; text-align: left; }
+        #input { width: 75%; padding: 5px; }
+        #sendBtn { width: 20%; padding: 5px; }
+    </style>
+</head>
+<body>
+    <div id="chat-box">
+        <h2>Chat App UI</h2>
+
+        <input id="userIdInput" placeholder="Enter User ID"
+               style="width:100%; padding:5px; margin-bottom:10px;" />
+
+        <input id="receiverIdInput" placeholder="Enter Receiver ID"
+               style="width:100%; padding:5px; margin-bottom:10px;" />
+
+        <button id="connectBtn" style="width:100%; padding:6px; margin-bottom:10px;">
+            Connect
+        </button>
+
+        <div id="messages"></div>
+
+        <input id="input" placeholder="Type message..." />
+        <button id="sendBtn">Send</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <script>
+        let conversationId = null;
+        let currentUser = null;
+        let stompClient = null;
+        let receiverId = null;
+
+        document.getElementById("connectBtn").addEventListener("click", async () => {
+            currentUser = document.getElementById("userIdInput").value.trim();
+            receiverId = document.getElementById("receiverIdInput").value.trim();
+
+            if (!currentUser || !receiverId) {
+                alert("Enter userId and receiverId");
+                return;
+            }
+
+            await connectWebSocket();
+        });
+
+        // Returns base URL for backend calls depending on environment
+        function getBackendBaseUrl() {
+            // local dev (file:// or live server), assume backend on localhost:8080
+            if (location.protocol === 'file:' || location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+                return 'http://localhost:8080';
+            }
+            // production: use same origin (works when frontend is proxied by backend or served from same domain)
+            return `${location.protocol}//${location.hostname}${location.port ? ':' + location.port : ''}`;
+        }
+
+        // Returns WebSocket URL for connecting
+        function getWebSocketUrl(userId) {
+            // local dev: backend on localhost:8080
+            if (location.protocol === 'file:' || location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+                return `ws://localhost:8080/ws?userId=${encodeURIComponent(userId)}`;
+            }
+            // production: same origin + secure if https
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const host = location.hostname;
+            const port = location.port ? `:${location.port}` : '';
+            return `${proto}://${host}${port}/ws?userId=${encodeURIComponent(userId)}`;
+        }
+
+        async function connectWebSocket() {
+            console.log("Connecting WebSocket as user:", currentUser);
+
+            const wsUrl = getWebSocketUrl(currentUser);
+            console.log("WebSocket URL:", wsUrl);
+
+            const socket = new WebSocket(wsUrl);
+            stompClient = Stomp.over(socket);
+
+            stompClient.connect(
+                { "userId": currentUser },
+
+                async (frame) => {
+                    console.log("CONNECTED FRAME:", frame);
+
+                    // fetch conversationId from backend (dynamically resolved)
+                    await fetchConversationId();
+
+                    if (!conversationId) {
+                        alert("Could not get/create conversation");
+                        return;
+                    }
+
+                    // subscribe AFTER we have conversationId
+                    stompClient.subscribe(`/user/queue/messages`, msg => {
+                        const body = JSON.parse(msg.body);
+                        addMessage(body.senderId === currentUser ? "self" : "other", body.content);
+                    });
+
+                    stompClient.subscribe(`/topic/chat/${conversationId}`, msg => {
+                        const body = JSON.parse(msg.body);
+                        addMessage(body.senderId === currentUser ? "self" : "other", body.content);
+                    });
+                },
+
+                (err) => {
+                    console.error("WebSocket error:", err);
+                    alert("WebSocket connection failed.");
+                }
+            );
+        }
+
+        async function fetchConversationId() {
+            try {
+                const base = getBackendBaseUrl();
+                const url = `${base}/api/chat/conversation?user1=${encodeURIComponent(currentUser)}&user2=${encodeURIComponent(receiverId)}`;
+                console.log("Fetching conversation from:", url);
+
+                const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error("Conversation fetch failed:", response.status, text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                conversationId = data.conversationId;
+                console.log("Fetched conversationId:", conversationId);
+            } catch (err) {
+                console.error("Failed to get conversationId", err);
+                alert("Error fetching conversation from server");
+            }
+        }
+
+        function sendMessage() {
+            const content = document.getElementById("input").value;
+            if (!content) return;
+
+            const frame = {
+                conversationId,
+                senderId: currentUser,
+                receiverId,
+                content,
+                contentType: "text"
+            };
+
+            stompClient.send(
+                "/app/chat.send",
+                { "content-type": "application/json" },
+                JSON.stringify(frame)
+            );
+
+            addMessage("self", content);
+            document.getElementById("input").value = "";
+        }
+
+        document.getElementById("sendBtn").addEventListener("click", sendMessage);
+
+        function addMessage(type, text) {
+            const div = document.createElement("div");
+            div.className = `msg ${type}`;
+            div.textContent = text;
+            document.getElementById("messages").appendChild(div);
+        }
+    </script>
+</body>
+</html>
+
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat App UI (STOMP WebSocket)</title>
+
+    <style>
+        body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; }
+        #chat-box { width: 400px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+        #messages { height: 250px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; background: #fafafa; }
+        .msg { padding: 5px 8px; margin: 5px 0; border-radius: 6px; }
+        .self { background: #d1ffd1; text-align: right; }
+        .other { background: #dbeaff; text-align: left; }
+        #input { width: 75%; padding: 5px; }
+        #sendBtn { width: 20%; padding: 5px; }
+    </style>
+</head>
+<body>
+    <div id="chat-box">
+        <h2>Chat App UI</h2>
+
+        <input id="userIdInput" placeholder="Enter User ID"
+            style="width:100%; padding:5px; margin-bottom:10px;" />
+
+        <input id="conversationIdInput" placeholder="Enter Conversation ID"
+            style="width:100%; padding:5px; margin-bottom:10px;" />
+
+        <input id="receiverIdInput" placeholder="Enter Receiver ID"
+            style="width:100%; padding:5px; margin-bottom:10px;" />
+
+        <button id="connectBtn" style="width:100%; padding:6px; margin-bottom:10px;">
+            Connect
+        </button>
+
+        <div id="messages"></div>
+
+        <input id="input" placeholder="Type message..." />
+        <button id="sendBtn">Send</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <script>
+        let conversationId = null;
+        let currentUser = null;
+        let stompClient = null;
+        let receiverId = null;
+
+        document.getElementById("connectBtn").addEventListener("click", () => {
+            currentUser = document.getElementById("userIdInput").value.trim();
+            receiverId = document.getElementById("receiverIdInput").value.trim();
+            conversationId = document.getElementById("conversationIdInput").value.trim();
+
+            if (!currentUser || !receiverId || !conversationId) {
+                alert("Enter userId, receiverId and conversationId");
+                return;
+            }
+
+            connectWebSocket();
+        });
+
+        function connectWebSocket() {
+            console.log("Connecting WebSocket as user:", currentUser);
+
+            // const socket = new WebSocket(`ws://localhost:8080/ws?userId=${currentUser}`);
+            //const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            //const wsHost = location.hostname;
+            //const wsPort = location.port ? `:${location.port}` : '';
+    
+    //const socket = new WebSocket(`${wsProtocol}://${wsHost}${wsPort}/ws?userId=${currentUser}`);
+            let wsUrl;
+            if (location.hostname === "127.0.0.1" || location.hostname === "localhost") {
+                // When running the frontend locally (Live Server)
+                wsUrl = `ws://localhost:8080/ws?userId=${currentUser}`;
+            } else {
+                // Production (AWS, domain, HTTPS)
+                const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+                const wsHost = location.hostname;
+                const wsPort = location.port ? `:${location.port}` : '';
+                wsUrl = `${wsProtocol}://${wsHost}${wsPort}/ws?userId=${currentUser}`;
+            }
+
+            const socket = new WebSocket(wsUrl);
+
+            stompClient = Stomp.over(socket);
+
+            stompClient.connect(
+                { "userId": currentUser },
+                
+                (frame) => {
+                    console.log("CONNECTED FRAME:", frame);
+
+                    stompClient.subscribe(`/user/queue/messages`, msg => {
+                        const body = JSON.parse(msg.body);
+                        addMessage(body.senderId === currentUser ? "self" : "other", body.content);
+                    });
+
+                    stompClient.subscribe(`/topic/chat/${conversationId}`, msg => {
+                        const body = JSON.parse(msg.body);
+                        addMessage(body.senderId === currentUser ? "self" : "other", body.content);
+                    });
+                },
+
+                (err) => {
+                    console.error("WebSocket error:", err);
+                    alert("WebSocket connection failed.");
+                }
+            );
+        }
+
+        function sendMessage() {
+            const content = document.getElementById("input").value;
+            if (!content) return;
+
+            const frame = {
+                conversationId,
+                senderId: currentUser,
+                receiverId,
+                content,
+                contentType: "text"
+            };
+
+            stompClient.send(
+                "/app/chat.send",
+                { "content-type": "application/json" },
+                JSON.stringify(frame)
+            );
+
+            addMessage("self", content);
+
+            document.getElementById("input").value = "";
+        }
+
+        document.getElementById("sendBtn").addEventListener("click", sendMessage);
+
+        function addMessage(type, text) {
+            const div = document.createElement("div");
+            div.className = `msg ${type}`;
+            div.textContent = text;
+            document.getElementById("messages").appendChild(div);
+        }
+    </script>
+</body>
+</html> -->

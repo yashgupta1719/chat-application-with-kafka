@@ -36,10 +36,10 @@ public class ChatMessage {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "content_type", columnDefinition = "ENUM('text','image','video','file','system') DEFAULT 'text'")
-    private ContentType contentType = ContentType.TEXT;
+    private ContentType contentType = ContentType.text;
 
     @Column(name = "created_at", columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime createdAt;
 
     @Column(name = "deleted", columnDefinition = "BOOLEAN DEFAULT FALSE")
     private Boolean deleted = false;
@@ -50,15 +50,15 @@ public class ChatMessage {
 
     public ChatMessage(){}
 
-    public ChatMessage(Long messageId, String conversationId, String senderId,
-                         String receiverId, String content, ContentType contentType, MessageStatus status) {
-        this.messageId = messageId;
+    public ChatMessage(String conversationId, String senderId,
+                         String receiverId, String content, ContentType contentType,
+                        LocalDateTime createdAt) {
         this.conversationId = conversationId;
         this.senderId = senderId;
         this.receiverId = receiverId;
         this.content = content;
         this.contentType = contentType;
-        this.status = status;
+        this.createdAt = createdAt;
     }
 
 

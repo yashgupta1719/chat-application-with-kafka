@@ -1,7 +1,10 @@
 package com.example.chat_application_with_kafka.config;
 
-import com.example.chat_application_with_kafka.utils.UserHandshakeInterceptor;
+import com.example.chat_application_with_kafka.utils.CustomHandshakeHandler;
+import com.example.chat_application_with_kafka.utils.UserChannelInterceptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -11,23 +14,34 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final UserHandshakeInterceptor userHandshakeInterceptor;
+    private final UserChannelInterceptor userChannelInterceptor;
 
-    public WebSocketConfig(UserHandshakeInterceptor userHandshakeInterceptor){
-        this.userHandshakeInterceptor = userHandshakeInterceptor;
+    @Autowired
+    private CustomHandshakeHandler handshakeHandler;
+
+    public WebSocketConfig(UserChannelInterceptor userChannelInterceptor){
+        this.userChannelInterceptor = userChannelInterceptor;
     }
-
 
     public void registerStompEndpoints(StompEndpointRegistry registry){
         registry.addEndpoint("/ws")
-                .addInterceptors(userHandshakeInterceptor)
+                .setHandshakeHandler(handshakeHandler)
                 .setAllowedOriginPatterns("*");
     }
 
-    public void configureMessageBroker(MessageBrokerRegistry registry){
-        registry.setApplicationDestinationPrefixes("/app");
-        registry.enableSimpleBroker("/topic");
 
+    @Override
+    public void configureMessageBroker(MessageBrokerRegistry registry) {
+
+        registry.enableSimpleBroker("/topic", "/queue");
+        registry.setUserDestinationPrefix("/user");
+
+        registry.setApplicationDestinationPrefixes("/app");
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration channelRegistration){
+        channelRegistration.interceptors(userChannelInterceptor);
     }
 
 }

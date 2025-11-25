@@ -2,6 +2,7 @@ package com.example.chat_application_with_kafka.controller;
 
 
 
+import com.example.chat_application_with_kafka.dto.ChatMessageDTO;
 import com.example.chat_application_with_kafka.model.ChatMessage;
 import com.example.chat_application_with_kafka.services.ChatService;
 import com.example.chat_application_with_kafka.services.KafkaProducerService;
@@ -20,7 +21,7 @@ public class ChatWebSocketController {
     private ChatService chatService;
 
     @MessageMapping("/chat.send")
-    public void sendMessage(ChatMessage message){
+    public void sendMessage(ChatMessageDTO message){
         chatService.persistAndSendMessage(message);
     }
 
